@@ -1,0 +1,15 @@
+name: 'Install Linux armv8_32 toolchain'
+description: 'Installs the cross compiling toolchain for Linux armv8_32'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install RPi toolchain
+      shell: bash
+      run: |
+        if [ ! -d /opt/gcc ]; then
+            mkdir -p /opt/gcc
+            cd /opt/gcc
+            sudo wget --quiet https://downloads.cpr-robots.com/Software/CI/gcc_armv8-rpi4-linux-gnueabihf.tar.gz
+            sudo tar -xf gcc_armv8-rpi4-linux-gnueabihf.tar.gz
+        fi

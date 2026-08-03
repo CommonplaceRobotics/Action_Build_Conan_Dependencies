@@ -1,0 +1,16 @@
+[settings]
+arch=armv8_32
+build_type=Debug
+compiler=gcc
+compiler.cppstd=gnu17
+compiler.libcxx=libstdc++11
+compiler.version=10
+os=Linux
+
+[buildenv]
+CC=/opt/gcc/armv8-rpi4-linux-gnueabihf/bin/armv8-rpi4-linux-gnueabihf-gcc
+CXX=/opt/gcc/armv8-rpi4-linux-gnueabihf/bin/armv8-rpi4-linux-gnueabihf-g++
+LD=/opt/gcc/armv8-rpi4-linux-gnueabihf/bin/armv8-rpi4-linux-gnueabihf-ld
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja

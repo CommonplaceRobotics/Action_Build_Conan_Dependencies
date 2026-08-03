@@ -1,0 +1,100 @@
+name: 'Build dependencies for Linux armv8_32'
+description: 'Builds dependencies using Conan 2, caches them to an Artifactory server and to the Github Actions cache'
+
+inputs:
+  lockfile: 
+    description: 'Name of the Conan lockfile'
+    default: 'conan.lock'
+    required: false
+  path:
+    description: 'Path to the working directory conataining a Conan recipe'
+    default: '.'
+    required: false
+  conanfile:
+    description: 'Name of the Conan recipe'
+    default: 'conanfile.py'
+    required: false
+  conan_parameters:
+    description: 'Additional parameters for Conan'
+    default: ''
+    required: false
+  cache_key:
+    description: 'Github Actions cache key'
+    default: 'any'
+    required: true
+    
+runs:
+  using: "composite"
+  steps: 
+    # Quick cache check without copying files
+    - name: Check whether cache exists
+      id: cache_test
+      uses: actions/cache/restore@v5
+      with:
+        path: |
+          ~/.conan2
+          out
+        key: ${{ inputs.cache_key }}
+        lookup-only: true
+
+    - name: Install Conan
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: conan-io/setup-conan@v1
+      
+    - name: Clear dependencies
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        conan remove "*" -c
+        cd ~/.conan2/p
+        mv cache.sqlite3 ..
+        rm -rf ~/.conan2/p/*
+        mv ../cache.sqlite3 .
+
+    - name: Restore cached dependencies
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.conan2
+          out
+        key: ${{ inputs.cache_key }}
+        restore-keys: |
+          conan-${{ runner.os }}-
+
+    - name: Get the Conan profiles
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: CommonplaceRobotics/Action_Build_Conan_Dependencies
+        path: build_conan_dependencies
+
+    - name: Install toolchain for RPi
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: ./build_conan_dependencies/Install_Toolchain_armv8_32
+
+    - name: Install Conan profiles
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      shell: bash
+      run: cp ${{ github.workspace }}/build_conan_dependencies/profiles/Linux/* ~/.conan2/profiles
+
+    - name: Build Conan dependencies
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cd "${{ inputs.path }}"
+        conan install . --lockfile ${{ inputs.lockfile }} --lockfile-partial --build=missing --profile:host=cpr_linux_rpi4_gcc10_release --profile:build=cpr_linux_x86_64_release -c tools.cmake.cmake_layout:build_folder_vars="['settings.os', 'settings.arch']" ${{ inputs.conan_parameters }} --format=json > build.json
+
+    # https://stackoverflow.com/questions/78082364/any-way-for-conan-to-automatically-upload-package-to-artifactory-if-it-was-just
+    - name: Upload newly built artifacts to Artifactory
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cd "${{ inputs.path }}"
+        conan list --graph=build.json --graph-binaries=build --format=json > pkglist.json
+        conan upload --list=pkglist.json -r=artifactory -c
+
+    - name: Compact Conan Cache for GHA Cache
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      shell: bash
+      run: conan cache clean "*" --source --download --temp
