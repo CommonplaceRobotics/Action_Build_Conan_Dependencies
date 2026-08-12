@@ -22,6 +22,15 @@ inputs:
     description: 'Github Actions cache key'
     default: 'any'
     required: true
+  conan_cache_user:
+    description: 'User name for the Conan cache'
+    default: ''
+    required: false
+  conan_cache_password:
+    description: 'Password for the Conan cache'
+    default: ''
+    required: false
+  
     
 runs:
   using: "composite"
@@ -73,6 +82,15 @@ runs:
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: cp build_conan_dependencies/profiles/Windows/* ~/.conan2/profiles
+
+    # Do this even if the other steps are skipped
+    - name: Login to CI cache
+      if: inputs.conan_cache_user != '' && inputs.conan_cache_password != ''
+      env:
+        CONAN_LOGIN_USERNAME: ${{ inputs.conan_cache_user }}
+        CONAN_PASSWORD: ${{ inputs.conan_cache_password }}
+      shell: bash
+      run: conan remote auth artifactory
 
     - name: Build Conan dependencies
       if: steps.cache_test.outputs.cache-hit != 'true'
