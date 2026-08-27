@@ -1,4 +1,4 @@
-name: 'Build dependencies for Windows x86_64'
+name: 'Build dependencies for Windows'
 description: 'Builds dependencies using Conan 2, caches them to an Artifactory server and to the Github Actions cache'
 
 inputs:
@@ -7,7 +7,7 @@ inputs:
     default: 'conan.lock'
     required: false
   path:
-    description: 'Path to the working directory conataining a Conan recipe'
+    description: 'Path(s) to the working directory conataining a Conan recipe'
     default: '.'
     required: false
   conanfile:
@@ -22,6 +22,12 @@ inputs:
     description: 'Github Actions cache key'
     default: 'any'
     required: true
+  cache_paths:
+    description: 'Paths for the Github Actions cache'
+    default: |
+          ~/.conan2
+          out
+    required: false
   conan_cache_user:
     description: 'User name for the Conan cache'
     default: ''
@@ -30,33 +36,24 @@ inputs:
     description: 'Password for the Conan cache'
     default: ''
     required: false
-  
+    
     
 runs:
   using: "composite"
   steps:
-    - name: Get the Conan profiles
-      uses: actions/checkout@v7
-      with:
-        repository: CommonplaceRobotics/Action_Build_Conan_Dependencies
-        path: build_conan_dependencies
-        
     # Quick cache check without copying files
     - name: Check whether cache exists
       id: cache_test
       uses: actions/cache/restore@v5
       with:
-        path: |
-          ~/.conan2
-          out
+        path: ${{ inputs.cache_paths }}
         key: ${{ inputs.cache_key }}
         lookup-only: true
 
     - name: Install Conan
       if: steps.cache_test.outputs.cache-hit != 'true'
       uses: conan-io/setup-conan@v1
-
-    # Clear Conan before restoring the cache to prevent issues
+      
     - name: Clear dependencies
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
@@ -66,17 +63,22 @@ runs:
         mv cache.sqlite3 ..
         rm -rf ~/.conan2/p/*
         mv ../cache.sqlite3 .
-        
+
     - name: Restore cached dependencies
       if: steps.cache_test.outputs.cache-hit != 'true'
       uses: actions/cache@v5
       with:
-        path: |
-          ~/.conan2
-          out
+        path: ${{ inputs.cache_paths }}
         key: ${{ inputs.cache_key }}
         restore-keys: |
           conan-${{ runner.os }}-
+
+    - name: Get the Conan profiles
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: CommonplaceRobotics/Action_Build_Conan_Dependencies
+        path: build_conan_dependencies
 
     - name: Install Conan profiles
       if: steps.cache_test.outputs.cache-hit != 'true'
@@ -96,17 +98,23 @@ runs:
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cd "${{ inputs.path }}"
-        conan install . --lockfile ${{ inputs.lockfile }} --lockfile-partial --build=missing --profile=cpr_windows_x86_64_release -c tools.cmake.cmake_layout:build_folder_vars="['settings.os', 'settings.arch']" -s:b compiler.cppstd=17 ${{ inputs.conan_parameters }} --format=json > build.json
+        paths=`echo "${{ inputs.path }}" | tr '\n' ' '`
+        for path in $paths; do
+            cd "${{ github.workspace }}/$path"
+            conan install . --lockfile ${{ inputs.lockfile }} --lockfile-partial --build=missing --profile=cpr_windows_x86_64_release -c tools.cmake.cmake_layout:build_folder_vars="['settings.os', 'settings.arch']" -s:b compiler.cppstd=17 ${{ inputs.conan_parameters }} --format=json > build.json
+        done
 
     # https://stackoverflow.com/questions/78082364/any-way-for-conan-to-automatically-upload-package-to-artifactory-if-it-was-just
     - name: Upload newly built artifacts to Artifactory
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cd "${{ inputs.path }}"
-        conan list --graph=build.json --graph-binaries=build --format=json > pkglist.json
-        conan upload --list=pkglist.json -r=artifactory -c
+        paths=`echo "${{ inputs.path }}" | tr '\n' ' '`
+        for path in $paths; do
+            cd "${{ github.workspace }}/$path"
+            conan list --graph=build.json --graph-binaries=build --format=json > pkglist.json
+            conan upload --list=pkglist.json -r=artifactory -c
+        done
 
     - name: Compact Conan Cache for GHA Cache
       if: steps.cache_test.outputs.cache-hit != 'true'

@@ -7,7 +7,7 @@ inputs:
     default: 'conan.lock'
     required: false
   path:
-    description: 'Path to the working directory conataining a Conan recipe'
+    description: 'Path(s) to the working directory conataining a Conan recipe'
     default: '.'
     required: false
   conanfile:
@@ -22,6 +22,12 @@ inputs:
     description: 'Github Actions cache key'
     default: 'any'
     required: true
+  cache_paths:
+    description: 'Paths for the Github Actions cache'
+    default: |
+          ~/.conan2
+          out
+    required: false
   conan_cache_user:
     description: 'User name for the Conan cache'
     default: ''
@@ -40,9 +46,7 @@ runs:
       id: cache_test
       uses: actions/cache/restore@v5
       with:
-        path: |
-          ~/.conan2
-          out
+        path: ${{ inputs.cache_paths }}
         key: ${{ inputs.cache_key }}
         lookup-only: true
 
@@ -64,9 +68,7 @@ runs:
       if: steps.cache_test.outputs.cache-hit != 'true'
       uses: actions/cache@v5
       with:
-        path: |
-          ~/.conan2
-          out
+        path: ${{ inputs.cache_paths }}
         key: ${{ inputs.cache_key }}
         restore-keys: |
           conan-${{ runner.os }}-
@@ -78,14 +80,14 @@ runs:
         repository: CommonplaceRobotics/Action_Build_Conan_Dependencies
         path: build_conan_dependencies
 
-    - name: Install toolchain for RPi
-      if: steps.cache_test.outputs.cache-hit != 'true'
-      uses: ./build_conan_dependencies/Install_Toolchain_armv8_32
-
     - name: Install Conan profiles
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: cp ${{ github.workspace }}/build_conan_dependencies/profiles/Linux/* ~/.conan2/profiles
+
+    - name: Install toolchain for RPi
+      if: steps.cache_test.outputs.cache-hit != 'true'
+      uses: ./build_conan_dependencies/Install_Toolchain_armv8_32
 
     # Do this even if the other steps are skipped
     - name: Login to CI cache
@@ -100,17 +102,23 @@ runs:
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cd "${{ inputs.path }}"
-        conan install . --lockfile ${{ inputs.lockfile }} --lockfile-partial --build=missing --profile:host=cpr_linux_rpi4_gcc10_release --profile:build=cpr_linux_x86_64_release -c tools.cmake.cmake_layout:build_folder_vars="['settings.os', 'settings.arch']" ${{ inputs.conan_parameters }} --format=json > build.json
+        paths=`echo "${{ inputs.path }}" | tr '\n' ' '`
+        for path in $paths; do
+            cd "${{ github.workspace }}/$path"
+            conan install . --lockfile ${{ inputs.lockfile }} --lockfile-partial --build=missing --profile:host=cpr_linux_rpi4_gcc10_release --profile:build=cpr_linux_x86_64_release -c tools.cmake.cmake_layout:build_folder_vars="['settings.os', 'settings.arch']" ${{ inputs.conan_parameters }} --format=json > build.json
+        done
 
     # https://stackoverflow.com/questions/78082364/any-way-for-conan-to-automatically-upload-package-to-artifactory-if-it-was-just
     - name: Upload newly built artifacts to Artifactory
       if: steps.cache_test.outputs.cache-hit != 'true'
       shell: bash
       run: |
-        cd "${{ inputs.path }}"
-        conan list --graph=build.json --graph-binaries=build --format=json > pkglist.json
-        conan upload --list=pkglist.json -r=artifactory -c
+        paths=`echo "${{ inputs.path }}" | tr '\n' ' '`
+        for path in $paths; do
+            cd "${{ github.workspace }}/$path"
+            conan list --graph=build.json --graph-binaries=build --format=json > pkglist.json
+            conan upload --list=pkglist.json -r=artifactory -c
+        done
 
     - name: Compact Conan Cache for GHA Cache
       if: steps.cache_test.outputs.cache-hit != 'true'
